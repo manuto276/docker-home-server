@@ -100,12 +100,7 @@ prepare_configuration() {
     find $TEMP_DIR -type f -exec sed -i "s|__NEXT_CLOUD_MYSQL_USER__|$NEXT_CLOUD_MYSQL_USER|g" {} \;
     find $TEMP_DIR -type f -exec sed -i "s|__NEXT_CLOUD_MYSQL_DATABASE__|$NEXT_CLOUD_MYSQL_DATABASE|g" {} \;
 
-    cp $TEMP_DIR/nginx.conf $NGINX_CONF_DIR/nginx.conf
-    cp $TEMP_DIR/gitlab.conf $NGINX_VHOST_DIR/gitlab.conf
-    cp $TEMP_DIR/collabora.conf $NGINX_VHOST_DIR/collabora.conf
-    cp $TEMP_DIR/nextcloud.conf $NGINX_VHOST_DIR/nextcloud.conf
-    cp $TEMP_DIR/phpmyadmin.conf $NGINX_VHOST_DIR/phpmyadmin.conf
-
+    cp $TEMP_DIR/nginx/conf.d/*.conf $NGINX_CONF_DIR/
     rm -rf $TEMP_DIR
 }
 

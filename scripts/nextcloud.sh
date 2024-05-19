@@ -5,7 +5,7 @@ source "$(dirname "$0")/utils.sh"
 
 # Funzione per creare un utente Nextcloud di default
 create_default_nextcloud_user() {
-    docker exec -it nextcloud occ user:add --display-name="$NEXTCLOUD_USERNAME" --password="$NEXTCLOUD_PASSWORD" "$NEXTCLOUD_USERNAME"
+    docker exec -u www-data -it nextcloud php occ user:add --display-name="$NEXTCLOUD_USERNAME" --password="$NEXTCLOUD_PASSWORD" "$NEXTCLOUD_USERNAME"
 }
 
 # Funzione per mostrare il menu
@@ -20,18 +20,18 @@ show_menu() {
 create_nextcloud_user() {
     read -p "Inserisci il nome del nuovo utente Nextcloud: " new_user
     read -p "Inserisci la password del nuovo utente Nextcloud: " new_password
-    docker exec -it nextcloud occ user:add --display-name="$new_user" --password="$new_password" "$new_user"
+    docker exec -u www-data -it nextcloud php occ user:add --display-name="$new_user" --password="$new_password" "$new_user"
 }
 
 # Funzione per mostrare gli utenti Nextcloud
 show_nextcloud_users() {
-    docker exec -it nextcloud occ user:list
+    docker exec -u www-data -it nextcloud php occ user:list
 }
 
 # Funzione per cancellare un utente Nextcloud
 delete_nextcloud_user() {
     read -p "Inserisci il nome dell'utente Nextcloud da cancellare: " del_user
-    docker exec -it nextcloud occ user:delete "$del_user"
+    docker exec -u www-data -it nextcloud php occ user:delete "$del_user"
 }
 
 # Funzione per eseguire l'azione selezionata

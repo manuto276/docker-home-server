@@ -30,7 +30,7 @@ services:
       - PGID=__PGID__
       - TZ=__TZ__
       - SERVERURL=__SERVERURL__
-      - SERVERPORT=__SERVERPORT__
+      - SERVERPORT=51820
       - PEERS=__PEERS__
       - PEERDNS=__PEERDNS__
       - INTERNAL_SUBNET=__INTERNAL_SUBNET__
@@ -39,7 +39,7 @@ services:
     volumes:
       - __WIREGUARD_CONFIG_DIR__:/config
     ports:
-      - "__SERVERPORT__:__SERVERPORT__/udp"
+      - "51820:51820/udp"
     networks:
       - private_network
 

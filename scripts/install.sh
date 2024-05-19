@@ -16,6 +16,7 @@ fi
 main() {
     check_prerequisites
     load_config
+    export_config
     get_user_input
     generate_wireguard_keys
     generate_ssl_certificates
@@ -34,12 +35,24 @@ load_config() {
     fi
 }
 
+# Funzione per esportare le variabili di configurazione
+export_config() {
+    export PUID PGID TZ SERVERPORT PEERS PEERDNS INTERNAL_SUBNET WG_ADDRESS MYSQL_ROOT_PASSWORD MYSQL_DATABASE
+    export COLLABORA_USERNAME COLLABORA_PASSWORD NEXTCLOUD_USERNAME NEXTCLOUD_PASSWORD NGINX_CONF_DIR NGINX_CERTS_DIR
+    export NGINX_VHOST_DIR WIREGUARD_CONFIG_DIR GITLAB_CONFIG_DIR GITLAB_LOGS_DIR GITLAB_DATA_DIR MYSQL_DATA_DIR
+    export NEXTCLOUD_DATA_DIR BASE_DOMAIN NEXTCLOUD_DOMAIN PHPMYADMIN_DOMAIN PHPMYADMIN_DATA_DIR EMAIL
+}
+
 # Funzione per richiedere input all'utente
 get_user_input() {
     read -p "Inserisci l'indirizzo IP del server [default: $(get_free_ip)]: " SERVERIP
     SERVERIP=${SERVERIP:-$(get_free_ip)}
     read -p "Inserisci il dominio di base (es. example.com): " BASE_DOMAIN
     read -p "Inserisci l'email per i certificati SSL: " EMAIL
+    NEXTCLOUD_DOMAIN="cloud.$BASE_DOMAIN"
+    PHPMYADMIN_DOMAIN="phpmyadmin.$BASE_DOMAIN"
+    GITLAB_DOMAIN="gitlab.$BASE_DOMAIN"
+    COLLABORA_DOMAIN="collabora.$BASE_DOMAIN"
     read -p "Vuoi creare un utente per Nextcloud? [s/n]: " input_create_nextcloud_user
     if [ "$input_create_nextcloud_user" == "s" ]; then
         read -p "Inserisci il nome utente di Nextcloud: " NEXTCLOUD_USERNAME
