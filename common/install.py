@@ -328,6 +328,9 @@ def install_server():
     print("Saving configuration...")
     save_config(config)
 
+    print("Configuring firewall...")
+    configure_firewall()
+
     print("Docker Home Server installation completed.")
 
 if __name__ == "__main__":
