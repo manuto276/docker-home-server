@@ -1,55 +1,41 @@
 #!/bin/bash
 
-# Funzione per controllare e installare i prerequisiti
+# Funzione per verificare i prerequisiti
 check_prerequisites() {
-    local required_cmds=("wg" "openssl" "docker" "docker-compose")
-    for cmd in "${required_cmds[@]}"; do
-        if ! command -v $cmd &> /dev/null; then
-            echo "$cmd non è installato. Installazione in corso..."
-            install_$cmd
-        fi
-    done
+    if ! [ -x "$(command -v docker)" ]; then
+        echo "Docker non è installato. Installazione in corso..."
+        curl -fsSL https://get.docker.com -o get-docker.sh
+        sh get-docker.sh
+        rm get-docker.sh
+    fi
+
+    if ! [ -x "$(command -v docker-compose)" ]; then
+        echo "Docker Compose non è installato. Installazione in corso..."
+        apt-get install -y docker-compose
+    fi
 }
 
-install_wg() {
-    apt-get update && apt-get install -y wireguard
-}
-
-install_openssl() {
-    apt-get update && apt-get install -y openssl
-}
-
-install_docker() {
-    curl -fsSL https://get.docker.com -o get-docker.sh
-    sh get-docker.sh
-    rm get-docker.sh
-}
-
-install_docker-compose() {
-    apt-get update && apt-get install -y docker-compose
+# Funzione per ottenere un indirizzo IP libero
+get_free_ip() {
+    ip addr show eth0 | grep -Po 'inet \K[\d.]+'
 }
 
 # Funzione per generare chiavi WireGuard
 generate_wireguard_keys() {
     if [ -f /etc/docker-server/keys ]; then
         source /etc/docker-server/keys
-        echo "Sono state trovate le chiavi WireGuard generate in precedenza"
     else
-        echo "Generazione delle chiavi WireGuard in corso..."
         SERVER_PRIVATE_KEY=$(wg genkey)
         SERVER_PUBLIC_KEY=$(echo $SERVER_PRIVATE_KEY | wg pubkey)
         CLIENT_PRIVATE_KEY=$(wg genkey)
         CLIENT_PUBLIC_KEY=$(echo $CLIENT_PRIVATE_KEY | wg pubkey)
-        mkdir -p /etc/docker-server
-        cat <<EOL > /etc/docker-server/keys
-SERVER_PRIVATE_KEY=$SERVER_PRIVATE_KEY
-SERVER_PUBLIC_KEY=$SERVER_PUBLIC_KEY
-CLIENT_PUBLIC_KEY=$CLIENT_PUBLIC_KEY
-EOL
+        echo "SERVER_PRIVATE_KEY=$SERVER_PRIVATE_KEY" | sudo tee /etc/docker-server/keys
+        echo "SERVER_PUBLIC_KEY=$SERVER_PUBLIC_KEY" | sudo tee -a /etc/docker-server/keys
+        echo "CLIENT_PUBLIC_KEY=$CLIENT_PUBLIC_KEY" | sudo tee -a /etc/docker-server/keys
     fi
 }
 
-# Funzione per generare certificati SSL autofirmati
+# Funzione per generare certificati SSL
 generate_ssl_certificates() {
     mkdir -p $NGINX_CERTS_DIR
     generate_certificate $BASE_DOMAIN
@@ -59,6 +45,7 @@ generate_ssl_certificates() {
     generate_certificate $GITLAB_DOMAIN
 }
 
+# Funzione per generare un certificato per un dominio
 generate_certificate() {
     local domain=$1
     if [ -f $NGINX_CERTS_DIR/$domain.crt ] && [ -f $NGINX_CERTS_DIR/$domain.key ]; then
@@ -71,16 +58,10 @@ generate_certificate() {
     fi
 }
 
-# Funzione per preparare la configurazione
+# Funzione per preparare i file di configurazione
 prepare_configuration() {
     TEMP_DIR=$(mktemp -d)
-    cp -r "$(dirname "$0")/../src"/* $TEMP_DIR
-    replace_placeholders
-    copy_configuration_files
-}
-
-# Funzione per sostituire i placeholder
-replace_placeholders() {
+    cp -r src/* $TEMP_DIR
     find $TEMP_DIR -type f -exec sed -i "s|__PUID__|$PUID|g" {} \;
     find $TEMP_DIR -type f -exec sed -i "s|__PGID__|$PGID|g" {} \;
     find $TEMP_DIR -type f -exec sed -i "s|__TZ__|$TZ|g" {} \;
@@ -118,38 +99,17 @@ replace_placeholders() {
     find $TEMP_DIR -type f -exec sed -i "s|__NEXTCLOUD_PASSWORD__|$NEXTCLOUD_PASSWORD|g" {} \;
     find $TEMP_DIR -type f -exec sed -i "s|__NEXT_CLOUD_MYSQL_USER__|$NEXT_CLOUD_MYSQL_USER|g" {} \;
     find $TEMP_DIR -type f -exec sed -i "s|__NEXT_CLOUD_MYSQL_DATABASE__|$NEXT_CLOUD_MYSQL_DATABASE|g" {} \;
-}
 
-# Funzione per copiare i file di configurazione
-copy_configuration_files() {
-    mkdir -p $NGINX_CONF_DIR
-    mkdir -p $NGINX_VHOST_DIR
     cp $TEMP_DIR/nginx.conf $NGINX_CONF_DIR/nginx.conf
     cp $TEMP_DIR/gitlab.conf $NGINX_VHOST_DIR/gitlab.conf
     cp $TEMP_DIR/collabora.conf $NGINX_VHOST_DIR/collabora.conf
     cp $TEMP_DIR/nextcloud.conf $NGINX_VHOST_DIR/nextcloud.conf
     cp $TEMP_DIR/phpmyadmin.conf $NGINX_VHOST_DIR/phpmyadmin.conf
-    mkdir -p $WIREGUARD_CONFIG_DIR
-    mkdir -p $GITLAB_CONFIG_DIR
-    mkdir -p $GITLAB_LOGS_DIR
-    mkdir -p $GITLAB_DATA_DIR
-    mkdir -p $MYSQL_DATA_DIR
-    mkdir -p $NEXTCLOUD_DATA_DIR
-    mkdir -p $COLLABORA_DATA_DIR
-    mkdir -p $PHPMYADMIN_DATA_DIR
+
+    rm -rf $TEMP_DIR
 }
 
-# Funzione per avviare i container Docker
+# Funzione per deployare i container
 deploy_containers() {
-    docker-compose -f $TEMP_DIR/docker-compose.yml up -d
-}
-
-# Funzione per eseguire lo script di setup MySQL
-run_mysql_setup() {
-    source "$(dirname "$0")/mysql.sh"
-}
-
-# Funzione per eseguire lo script di setup Nextcloud
-run_nextcloud_setup() {
-    source "$(dirname "$0")/nextcloud.sh"
+    docker-compose -f "$(dirname "$0")/../src/docker-compose.yml" up -d
 }

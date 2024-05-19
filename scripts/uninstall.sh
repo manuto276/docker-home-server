@@ -3,22 +3,44 @@
 # Include utility functions
 source "$(dirname "$0")/utils.sh"
 
-# Verifica che lo script venga eseguito con sudo
-if [ "$EUID" -ne 0 ]; then
-    echo "Esegui lo script con sudo"
-    exit 1
-fi
+# Funzione principale di disinstallazione
+main() {
+    stop_containers
+    remove_containers
+    remove_images
+    remove_volumes
+    remove_networks
+    remove_configuration
+}
 
-# Funzione per fermare e rimuovere i container Docker
+# Funzione per fermare i container
+stop_containers() {
+    docker stop $(docker ps -a -q)
+}
+
+# Funzione per rimuovere i container
 remove_containers() {
-    docker-compose -f "$(dirname "$0")/../src/docker-compose.yml" down
-    docker system prune -a -f
+    docker rm $(docker ps -a -q)
+}
+
+# Funzione per rimuovere le immagini Docker
+remove_images() {
+    docker image prune -a -f
+}
+
+# Funzione per rimuovere i volumi Docker
+remove_volumes() {
+    docker volume prune -f
+}
+
+# Funzione per rimuovere le reti Docker
+remove_networks() {
     docker network prune -f
 }
 
-# Funzione principale di disinstallazione
-main() {
-    remove_containers
+# Funzione per rimuovere i file di configurazione
+remove_configuration() {
+    rm -rf /etc/docker-server
 }
 
 # Esecuzione della funzione principale

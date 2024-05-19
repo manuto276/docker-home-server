@@ -73,8 +73,10 @@ execute_choice() {
 }
 
 # Ciclo principale del menu
-while true; do
-    show_menu
-    read -p "Seleziona un'opzione: " choice
-    execute_choice $choice
-done
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    while true; do
+        show_menu
+        read -p "Seleziona un'opzione: " choice
+        execute_choice $choice
+    done
+fi

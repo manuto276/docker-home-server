@@ -2,6 +2,9 @@
 
 # Include utility functions
 source "$(dirname "$0")/utils.sh"
+source "$(dirname "$0")/mysql.sh"
+source "$(dirname "$0")/nextcloud.sh"
+source "$(dirname "$0")/wireguard.sh"
 
 # Verifica che lo script venga eseguito con sudo
 if [ "$EUID" -ne 0 ]; then
@@ -18,8 +21,8 @@ main() {
     generate_ssl_certificates
     prepare_configuration
     deploy_containers
-    run_mysql_setup
-    run_nextcloud_setup
+    create_default_mysql_user
+    create_default_nextcloud_user
 }
 
 # Funzione per caricare il file di configurazione
@@ -47,18 +50,6 @@ get_user_input() {
         read -p "Inserisci il nome dell'utente MySQL: " MYSQL_USER
         read -p "Inserisci la password dell'utente MySQL: " MYSQL_PASSWORD
     fi
-}
-
-# Funzione per eseguire lo script di setup MySQL
-run_mysql_setup() {
-    bash "$(dirname "$0")/mysql.sh"
-    create_default_mysql_user
-}
-
-# Funzione per eseguire lo script di setup Nextcloud
-run_nextcloud_setup() {
-    bash "$(dirname "$0")/nextcloud.sh"
-    create_default_nextcloud_user
 }
 
 # Esecuzione della funzione principale
