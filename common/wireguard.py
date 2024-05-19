@@ -1,35 +1,30 @@
 import subprocess
 import sys
 
-def generate_wireguard_config():
-    # Generate WireGuard server and client keys
-    server_private_key = subprocess.run(['wg', 'genkey'], stdout=subprocess.PIPE, check=True).stdout.decode().strip()
-    server_public_key = subprocess.run(['echo', server_private_key, '|', 'wg', 'pubkey'], stdout=subprocess.PIPE, shell=True, check=True).stdout.decode().strip()
+def get_wireguard_config_from_container(container_name):
+    # Copia il file di configurazione dal container Docker al sistema host
+    config_path = "/config/peer1/peer1.conf"  # Percorso della configurazione WireGuard nel container
+    local_config_path = "/tmp/peer1.conf"
 
-    client_private_key = subprocess.run(['wg', 'genkey'], stdout=subprocess.PIPE, check=True).stdout.decode().strip()
-    client_public_key = subprocess.run(['echo', client_private_key, '|', 'wg', 'pubkey'], stdout=subprocess.PIPE, shell=True, check=True).stdout.decode().strip()
+    try:
+        subprocess.run(['docker', 'cp', f'{container_name}:{config_path}', local_config_path], check=True)
+    except subprocess.CalledProcessError as e:
+        print(f"Error copying file from container: {e}")
+        sys.exit(1)
 
-    # Generate a basic WireGuard configuration for the client
-    config = f"""
-[Interface]
-PrivateKey = {client_private_key}
-Address = 10.0.0.2/24
-DNS = 8.8.8.8
-
-[Peer]
-PublicKey = {server_public_key}
-Endpoint = YOUR_SERVER_IP:51820
-AllowedIPs = 0.0.0.0/0, ::/0
-PersistentKeepalive = 21
-"""
-
-    print(config)
+    # Leggi il contenuto del file di configurazione
+    try:
+        with open(local_config_path, 'r') as file:
+            config = file.read()
+    except FileNotFoundError:
+        print("Configuration file not found.")
+        sys.exit(1)
 
     return config
 
 def print_wireguard_qr(config):
     # Print QR code using qrencode
-    subprocess.run(['qrencode', '-t', 'ANSIUTF8', config], check=True)
+    subprocess.run(['qrencode', '-t', 'ANSIUTF8'], input=config.encode(), check=True)
 
 def wireguard_menu():
     while True:
@@ -40,9 +35,9 @@ def wireguard_menu():
         choice = input("Enter your choice: ")
 
         if choice == '1':
-            config = generate_wireguard_config()
+            container_name = "wireguard"  # Nome del container Docker WireGuard
+            config = get_wireguard_config_from_container(container_name)
             print("WireGuard configuration:")
-            print(config)
             print("Generating QR code...")
             print_wireguard_qr(config)
         elif choice == '2':

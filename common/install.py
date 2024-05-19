@@ -113,6 +113,16 @@ def generate_ssl_certificate(domain):
         '-subj', f'/CN={domain}'
     ], check=True)
 
+def configure_ports():
+    # Configure the ports to be used by the services
+    # Enable the firewall and allow ports for SSH and VPN.
+    # Close all other ports by default.
+    subprocess.run(['ufw', 'default', 'deny'], check=True)
+
+    subprocess.run(['ufw', 'allow', '22'], check=True)
+    subprocess.run(['ufw', 'allow', '51820/udp'], check=True)
+    subprocess.run(['ufw', 'enable'], check=True)
+
 def install_server():
     # Load the default configuration and the previous configuration, then join them by giving priority to the previous configuration
     print("Loading default configuration...")
@@ -222,6 +232,9 @@ def install_server():
     if create_mysql_user.lower() == 'y':
         print("Creating MySQL user...")
         mysql.create_mysql_user(config)
+
+    print("Configuring ports...")
+    configure_ports()
 
     print("Cleaning up temporary files...")
     shutil.rmtree(temp_dir)
