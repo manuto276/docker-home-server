@@ -29,7 +29,7 @@ services:
       - PUID=__PUID__
       - PGID=__PGID__
       - TZ=__TZ__
-      - SERVERURL=__SERVERURL__
+      - SERVERURL=__WIREGUARD__DOMAIN__
       - SERVERPORT=51820
       - PEERS=__PEERS__
       - PEERDNS=__PEERDNS__
