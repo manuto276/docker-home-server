@@ -1,0 +1,115 @@
+version: '3'
+services:
+  nginx:
+    image: nginx:latest
+    container_name: nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - __NGINX_CONF_DIR__:/etc/nginx/conf.d
+      - __NGINX_CERTS_DIR__:/etc/ssl/certs
+      - __NGINX_VHOST_DIR__:/etc/nginx/vhost.d
+    depends_on:
+      - gitlab
+      - mysql
+      - phpmyadmin
+      - nextcloud
+      - collabora
+    networks:
+      - private_network
+
+  wireguard:
+    image: linuxserver/wireguard
+    container_name: wireguard
+    cap_add:
+      - NET_ADMIN
+      - SYS_MODULE
+    environment:
+      - PUID=__PUID__
+      - PGID=__PGID__
+      - TZ=__TZ__
+      - SERVERURL=__SERVERURL__
+      - SERVERPORT=__SERVERPORT__
+      - PEERS=__PEERS__
+      - PEERDNS=__PEERDNS__
+      - INTERNAL_SUBNET=__INTERNAL_SUBNET__
+      - SERVER_PRIVATE_KEY=__SERVER_PRIVATE_KEY__
+      - SERVER_PUBLIC_KEY=__SERVER_PUBLIC_KEY__
+    volumes:
+      - __WIREGUARD_CONFIG_DIR__:/config
+    ports:
+      - "__SERVERPORT__:__SERVERPORT__/udp"
+    networks:
+      - private_network
+
+  gitlab:
+    image: gitlab/gitlab-ce:latest
+    container_name: gitlab
+    environment:
+      GITLAB_OMNIBUS_CONFIG: "external_url 'http://__GITLAB_DOMAIN__'"
+    ports:
+      - "8929:80"
+    volumes:
+      - __GITLAB_CONFIG_DIR__:/etc/gitlab
+      - __GITLAB_LOGS_DIR__:/var/log/gitlab
+      - __GITLAB_DATA_DIR__:/var/opt/gitlab
+    networks:
+      - private_network
+
+  mysql:
+    image: mysql:8.0
+    container_name: mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: __MYSQL_ROOT_PASSWORD__
+      MYSQL_DATABASE: __MYSQL_DATABASE__
+    volumes:
+      - __MYSQL_DATA_DIR__:/var/lib/mysql
+    networks:
+      - private_network
+
+  phpmyadmin:
+    image: phpmyadmin/phpmyadmin
+    container_name: phpmyadmin
+    restart: always
+    environment:
+      PMA_HOST: mysql
+      MYSQL_ROOT_PASSWORD: __MYSQL_ROOT_PASSWORD__
+    ports:
+      - "8080:80"
+    networks:
+      - private_network
+
+  nextcloud:
+    image: nextcloud:latest
+    container_name: nextcloud
+    restart: always
+    environment:
+      - MYSQL_HOST=mysql
+      - MYSQL_DATABASE=__NEXT_CLOUD_MYSQL_DATABASE__
+      - MYSQL_USER=__NEXT_CLOUD_MYSQL_USER__
+      - MYSQL_PASSWORD=__MYSQL_ROOT_PASSWORD__
+    ports:
+      - "8081:80"
+    volumes:
+      - __NEXTCLOUD_DATA_DIR__:/var/www/html
+    networks:
+      - private_network
+
+  collabora:
+    image: collabora/code
+    container_name: collabora
+    environment:
+      - domain=__COLLABORA_DOMAIN__
+      - username=__COLLABORA_USERNAME__
+      - password=__COLLABORA_PASSWORD__
+    ports:
+      - "9980:9980"
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+    networks:
+      - private_network
+
+networks:
+  private_network:
+    driver: bridge
