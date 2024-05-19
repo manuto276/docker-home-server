@@ -63,7 +63,6 @@ def cleanup_docker_containers():
 
 def save_config(config):
     # Save the configuration to /etc/docker-home-server/config
-
     # Check if the directory /etc/docker-home-server exists
     if not os.path.exists('/etc/docker-home-server'):
         os.makedirs('/etc/docker-home-server')
@@ -123,14 +122,20 @@ def configure_ports():
     subprocess.run(['ufw', 'allow', '51820/udp'], check=True)
     subprocess.run(['ufw', 'enable'], check=True)
 
+def copy_nginx_config(temp_dir):
+    # Copy the Nginx configuration files from the temporary directory /tmp/docker-home-server/src/nginx/conf.d
+    # to the Nginx configuration directory /etc/nginx/conf.d
+    nginx_conf_dir = '/etc/nginx/conf.d'
+    shutil.copytree(f'{temp_dir}/nginx/conf.d', nginx_conf_dir, dirs_exist_ok=True)
+
 def install_server():
     # Load the default configuration and the previous configuration, then join them by giving priority to the previous configuration
     print("Loading default configuration...")
     config = load_default_config()
-    previous_config = load_config()
+    # previous_config = load_config()
 
-    if previous_config is not None:
-        config.update(previous_config)
+    # if previous_config is not None:
+    #    config.update(previous_config)
     
     print("Installing Docker and Docker Compose...")
     install_docker()
@@ -153,8 +158,7 @@ def install_server():
     if domain:
         config['BASE_DOMAIN'] = domain
         config['GITLAB_DOMAIN'] = f"gitlab.{domain}"
-        config['NEXTCLOUD_DOMAIN'] = f"cloud.{domain}"
-        config['WIREGUARD_DOMAIN'] = f"vpn.{domain}"
+        config['NEXTCLOUD_DOMAIN'] = f"nextcloud.{domain}"
         config['PHPMYADMIN_DOMAIN'] = f"phpmyadmin.{domain}"
 
     # Asking for the WireGuard server port
@@ -206,7 +210,6 @@ def install_server():
     generate_ssl_certificate(config['BASE_DOMAIN'])
     generate_ssl_certificate(config['GITLAB_DOMAIN'])
     generate_ssl_certificate(config['NEXTCLOUD_DOMAIN'])
-    generate_ssl_certificate(config['WIREGUARD_DOMAIN'])
     generate_ssl_certificate(config['PHPMYADMIN_DOMAIN'])
     
     temp_dir = '/tmp/docker-home-server'
@@ -215,6 +218,9 @@ def install_server():
     
     print("Replacing placeholders with configuration values...")
     replace_placeholders(config, temp_dir, temp_dir)
+
+    print("Copying Nginx configuration...")
+    copy_nginx_config(temp_dir)
 
     print("Stopping Docker containers (if any)...")
     stop_docker_containers(temp_dir)
