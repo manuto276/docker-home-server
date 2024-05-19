@@ -2,10 +2,11 @@ import os
 import shutil
 import subprocess
 import sys
+from common import mysql
 
 def load_default_config():
     config = {}
-    with open('config/config.default') as f:
+    with open(os.path.join(os.path.dirname(__file__), '../config/default.conf')) as f:
         for line in f:
             if line.strip() and not line.startswith('#'):
                 key, value = line.strip().split('=', 1)
@@ -93,23 +94,18 @@ def load_config():
                 config[key] = value.strip('"')
     return config
 
-def generate_wireguard_keys():
-    # Generate the WireGuard server keys
-    server_private_key = subprocess.run(['wg', 'genkey'], stdout=subprocess.PIPE, check=True).stdout.decode().strip()
-    server_public_key = subprocess.run(['echo', server_private_key, '|', 'wg', 'pubkey'], stdout=subprocess.PIPE, check=True).stdout.decode().strip()
-
-    # Generate the WireGuard client keys
-    client_private_key = subprocess.run(['wg', 'genkey'], stdout=subprocess.PIPE, check=True).stdout.decode().strip()
-    client_public_key = subprocess.run(['echo', client_private_key, '|', 'wg', 'pubkey'], stdout=subprocess.PIPE, check=True).stdout.decode().strip()
-
-    return server_private_key, server_public_key, client_private_key, client_public_key
-
 def generate_ssl_certificate(domain):
     # Generate an SSL certificate
     ssl_dir = '/etc/ssl/certs'
     if not os.path.exists(ssl_dir):
         os.makedirs(ssl_dir)
     
+    # Check if the SSL certificate already exists
+    if os.path.exists(f'{ssl_dir}/{domain}.crt') and os.path.exists(f'{ssl_dir}/{domain}.key'):
+        recreate_certificate = input("The SSL certificate already exists. Do you want to recreate it? [y/n]: ")
+        if recreate_certificate.lower() != 'y':
+            return
+
     subprocess.run([
         'openssl', 'req', '-x509', '-nodes', '-days', '365', '-newkey', 'rsa:2048', 
         '-keyout', f'{ssl_dir}/{domain}.key', 
@@ -133,6 +129,15 @@ def install_server():
     create_directories(config)
     
     # Asking the user for the configuration values
+    # Get the IP address of the server (eg. 57.18.21.0)
+    ip_address = subprocess.run(['hostname', '-I'], stdout=subprocess.PIPE).stdout.decode().strip().split()[0]
+    config['SERVERIP'] = ip_address
+
+    # Asking for the IP address (use the generated IP address if available)
+    ip_address = input(f"Enter the server IP address [{ip_address}]: ")
+    if ip_address:
+        config['SERVERIP'] = ip_address
+
     # Asking for the domain name
     domain = input(f"Enter the domain name [{config['BASE_DOMAIN']}]: ")
     if domain:
@@ -157,38 +162,34 @@ def install_server():
     if mysql_root_password:
         config['MYSQL_ROOT_PASSWORD'] = mysql_root_password
 
-    # Asking for the MySQL database name
-    mysql_database = input(f"Enter the MySQL database name [{config['MYSQL_DATABASE']}]: ")
-    if mysql_database:
-        config['MYSQL_DATABASE'] = mysql_database
+    # Asking if user wants to create a MySQL user
+    create_mysql_user = input("Do you want to create a MySQL user? [y/n]: ")
+    if create_mysql_user.lower() == 'y':
+        # Asking for the MySQL user
+        mysql_user = input(f"Enter the MySQL user [{config['MYSQL_USER']}]: ")
+        if mysql_user:
+            config['MYSQL_USER'] = mysql_user
 
-    # Asking for the MySQL user
-    mysql_user = input(f"Enter the MySQL user [{config['MYSQL_USER']}]: ")
-    if mysql_user:
-        config['MYSQL_USER'] = mysql_user
+        # Asking for the MySQL user password
+        mysql_password = input(f"Enter the MySQL user password [{config['MYSQL_PASSWORD']}]: ")
+        if mysql_password:
+            config['MYSQL_PASSWORD'] = mysql_password
 
-    # Asking for the MySQL user password
-    mysql_password = input(f"Enter the MySQL user password [{config['MYSQL_PASSWORD']}]: ")
-    if mysql_password:
-        config['MYSQL_PASSWORD'] = mysql_password
+    # Asking if user wants to create a default MySQL database
+    create_mysql_database = input("Do you want to create a default MySQL database? [y/n]: ")
+    if create_mysql_database.lower() == 'y':
+        # Asking for the MySQL database name
+        mysql_database = input(f"Enter the MySQL database name [{config['MYSQL_DATABASE']}]: ")
+        if mysql_database:
+            config['MYSQL_DATABASE'] = mysql_database
 
-    # Asking for the Nextcloud admin password
-    nextcloud_password = input(f"Enter the Nextcloud admin password [{config['NEXTCLOUD_PASSWORD']}]: ")
-    if nextcloud_password:
-        config['NEXTCLOUD_PASSWORD'] = nextcloud_password
-
-    # Asking for the GitLab root password
-    gitlab_root_password = input(f"Enter the GitLab root password [{config['GITLAB_PASSWORD']}]: ")
-    if gitlab_root_password:
-        config['GITLAB_PASSWORD'] = gitlab_root_password
-    
-    # Generate WireGuard keys
-    print("Generating WireGuard keys...")
-    server_private_key, server_public_key, client_private_key, client_public_key = generate_wireguard_keys()
-    config['SERVER_PRIVATE_KEY'] = server_private_key
-    config['SERVER_PUBLIC_KEY'] = server_public_key
-    config['CLIENT_PRIVATE_KEY'] = client_private_key
-    config['CLIENT_PUBLIC_KEY'] = client_public_key
+    # Asking if user wants to create a Nextcloud user
+    create_nextcloud_user = input("Do you want to create a Nextcloud user? [y/n]: ")
+    if create_nextcloud_user.lower() == 'y':
+        # Asking for the Nextcloud admin password
+        nextcloud_password = input(f"Enter the Nextcloud admin password [{config['NEXTCLOUD_PASSWORD']}]: ")
+        if nextcloud_password:
+            config['NEXTCLOUD_PASSWORD'] = nextcloud_password
 
     # Generate SSL certificates
     print("Generating SSL certificates...")
@@ -203,7 +204,7 @@ def install_server():
     shutil.copytree('src', temp_dir, dirs_exist_ok=True)
     
     print("Replacing placeholders with configuration values...")
-    replace_placeholders(config, 'src', temp_dir)
+    replace_placeholders(config, temp_dir, temp_dir)
 
     print("Stopping Docker containers (if any)...")
     stop_docker_containers(temp_dir)
@@ -213,7 +214,15 @@ def install_server():
     
     print("Building Docker containers...")
     build_docker_containers(temp_dir)
-    
+
+    if create_mysql_database.lower() == 'y':
+        print("Creating MySQL database...")
+        mysql.create_mysql_database(config)
+
+    if create_mysql_user.lower() == 'y':
+        print("Creating MySQL user...")
+        mysql.create_mysql_user(config)
+
     print("Cleaning up temporary files...")
     shutil.rmtree(temp_dir)
 

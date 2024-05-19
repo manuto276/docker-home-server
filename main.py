@@ -9,7 +9,7 @@ def main_menu():
         print("2. Uninstall Docker Server")
         print("3. Configure MySQL")
         print("4. Configure Nextcloud")
-        print("5. Generate WireGuard QR")
+        print("5. WireGuard Configuration")
         print("6. Exit")
         
         choice = input("Enter your choice: ")
@@ -23,7 +23,7 @@ def main_menu():
         elif choice == '4':
             nextcloud.configure_nextcloud()
         elif choice == '5':
-            pass
+            wireguard.wireguard_menu()
         elif choice == '6':
             sys.exit()
         else:

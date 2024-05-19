@@ -22,6 +22,7 @@ services:
   wireguard:
     image: linuxserver/wireguard
     container_name: wireguard
+    restart: unless-stopped
     cap_add:
       - NET_ADMIN
       - SYS_MODULE
@@ -29,15 +30,17 @@ services:
       - PUID=__PUID__
       - PGID=__PGID__
       - TZ=__TZ__
-      - SERVERURL=__WIREGUARD__DOMAIN__
+      - SERVERURL=__SERVERIP__
       - SERVERPORT=51820
       - PEERS=__PEERS__
       - PEERDNS=__PEERDNS__
       - INTERNAL_SUBNET=__INTERNAL_SUBNET__
-      - SERVER_PRIVATE_KEY=__SERVER_PRIVATE_KEY__
-      - SERVER_PUBLIC_KEY=__SERVER_PUBLIC_KEY__
+      - ALLOWEDIPS=__ALLOWEDIPS__
     volumes:
       - __WIREGUARD_CONFIG_DIR__:/config
+      - /lib/modules:/lib/modules
+    sysctls:
+      - net.ipv4.conf.all.src_valid_mark=1
     ports:
       - "51820:51820/udp"
     networks:
