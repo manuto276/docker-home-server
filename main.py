@@ -22,7 +22,6 @@ def main_menu():
             mysql.configure_mysql()
         elif choice == '4':
             nextcloud.configure_nextcloud()
-            
         elif choice == '0':
             sys.exit()
         else:
