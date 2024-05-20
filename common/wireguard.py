@@ -1,108 +1,133 @@
-import os
 import subprocess
+import os
 import sys
-import socket
+
+WG_CONFIG_PATH = "/etc/wireguard"
+WG_SERVER_CONFIG = f"{WG_CONFIG_PATH}/wg0.conf"
+WG_SERVER_PORT = 51820  # Porta classica di WireGuard
+CLIENT_SUBNET = "10.0.0.2/32"
+
+def check_sudo():
+    if os.geteuid() != 0:
+        print("This script must be run as root.")
+        sys.exit(1)
+
+def run_command(command):
+    try:
+        subprocess.check_call(command, shell=True)
+    except subprocess.CalledProcessError as e:
+        print(f"Command '{command}' failed with error: {e}")
 
 def get_server_ip():
-    hostname = socket.gethostname()
-    ip_address = socket.gethostbyname(hostname)
+    ip_address = subprocess.run(['hostname', '-I'], stdout=subprocess.PIPE).stdout.decode().strip().split()[0]
     return ip_address
-
-def generate_keys():
-    private_key = subprocess.run(['wg', 'genkey'], check=True, stdout=subprocess.PIPE).stdout.decode().strip()
-    public_key = subprocess.run(['wg', 'pubkey'], input=private_key.encode(), check=True, stdout=subprocess.PIPE).stdout.decode().strip()
-    return private_key, public_key
 
 def install_wireguard():
     print("Installing WireGuard...")
-    try:
-        subprocess.run(['apt-get', 'update'], check=True)
-        subprocess.run(['apt-get', 'install', '-y', 'wireguard', 'qrencode'], check=True)
-        print("WireGuard installed successfully.")
-    except subprocess.CalledProcessError as e:
-        print(f"Error installing WireGuard: {e}")
-        sys.exit(1)
-    configure_wireguard()
+    run_command('apt-get update')
+    run_command('apt-get install -y wireguard wireguard-tools qrencode')
+    print("WireGuard installed successfully.")
+
+    # Configura WireGuard Server
+    server_ip = get_server_ip()
+    client_ip = CLIENT_SUBNET
+
+    # Genera chiavi del server se non presenti
+    if not os.path.exists(f"{WG_CONFIG_PATH}/server_private.key"):
+        server_private_key = subprocess.check_output('wg genkey', shell=True).decode('utf-8').strip()
+        server_public_key = subprocess.check_output(f'echo {server_private_key} | wg pubkey', shell=True).decode('utf-8').strip()
+        with open(f"{WG_CONFIG_PATH}/server_private.key", 'w') as f:
+            f.write(server_private_key)
+        with open(f"{WG_CONFIG_PATH}/server_public.key", 'w') as f:
+            f.write(server_public_key)
+    else:
+        with open(f"{WG_CONFIG_PATH}/server_private.key", 'r') as f:
+            server_private_key = f.read().strip()
+        with open(f"{WG_CONFIG_PATH}/server_public.key", 'r') as f:
+            server_public_key = f.read().strip()
+
+    # Genera chiavi client
+    client_private_key, client_public_key = generate_keys()
+
+    # Crea configurazione del server
+    create_server_config(server_ip, WG_SERVER_PORT, server_private_key, client_public_key, client_ip)
+    
+    # Crea configurazione del client
+    client_config = create_client_config(client_private_key, server_public_key, server_ip, WG_SERVER_PORT, client_ip)
+    client_config_path = save_client_config(client_config)
+
+    # Genera QR code
+    generate_qr_code(client_config_path)
 
 def uninstall_wireguard():
     print("Uninstalling WireGuard...")
-    try:
-        subprocess.run(['apt-get', 'remove', '-y', 'wireguard'], check=True)
-        subprocess.run(['apt-get', 'autoremove', '-y'], check=True)
-        print("WireGuard uninstalled successfully.")
-    except subprocess.CalledProcessError as e:
-        print(f"Error uninstalling WireGuard: {e}")
-        sys.exit(1)
+    run_command('systemctl stop wg-quick@wg0')
+    run_command('systemctl disable wg-quick@wg0')
+    run_command('apt-get remove -y wireguard wireguard-tools')
+    run_command('apt-get autoremove -y')
+    print("WireGuard uninstalled successfully.")
 
-def get_server_configuration():
-    ip_address = get_server_ip()
-    private_key, public_key = generate_keys()
-    config = f"""
+def generate_keys():
+    client_private_key = subprocess.check_output('wg genkey', shell=True).decode('utf-8').strip()
+    client_public_key = subprocess.check_output(f'echo {client_private_key} | wg pubkey', shell=True).decode('utf-8').strip()
+    with open(f"{WG_CONFIG_PATH}/client_private.key", 'w') as f:
+        f.write(client_private_key)
+    with open(f"{WG_CONFIG_PATH}/client_public.key", 'w') as f:
+        f.write(client_public_key)
+    return client_private_key, client_public_key
+
+def create_server_config(server_ip, server_port, server_private_key, client_public_key, client_ip):
+    server_config = f"""
 [Interface]
 Address = 10.0.0.1/24
-ListenPort = 51820
-PrivateKey = {private_key}
+ListenPort = {server_port}
+PrivateKey = {server_private_key}
+PostUp = iptables -A FORWARD -i %i -j ACCEPT; iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE; iptables -A FORWARD -o %i -j ACCEPT; iptables -A INPUT -p udp --dport {server_port} -j ACCEPT
+PostDown = iptables -D FORWARD -i %i -j ACCEPT; iptables -t nat -D POSTROUTING -o eth0 -j MASQUERADE; iptables -D FORWARD -o %i -j ACCEPT; iptables -D INPUT -p udp --dport {server_port} -j ACCEPT
 
-# Add peer configurations below
-    """
-    return config, private_key, public_key
-
-def get_peer_configuration(server_public_key, server_ip, peer_ip, peer_num):
-    private_key, public_key = generate_keys()
-    config = f"""
 [Peer]
-PublicKey = {public_key}
-AllowedIPs = {peer_ip}/32
-PersistentKeepalive = 25
-    """
-    peer_config = f"""
+PublicKey = {client_public_key}
+AllowedIPs = {client_ip}
+"""
+    with open(WG_SERVER_CONFIG, 'w') as f:
+        f.write(server_config)
+    run_command('systemctl enable wg-quick@wg0')
+    run_command('systemctl start wg-quick@wg0')
+
+def create_client_config(client_private_key, server_public_key, server_ip, server_port, client_ip):
+    client_config = f"""
 [Interface]
-Address = {peer_ip}/24
-PrivateKey = {private_key}
+Address = {client_ip}
+PrivateKey = {client_private_key}
+DNS = 1.1.1.1
 
 [Peer]
 PublicKey = {server_public_key}
+Endpoint = {server_ip}:{server_port}
 AllowedIPs = 0.0.0.0/0
-Endpoint = {server_ip}:51820
 PersistentKeepalive = 25
-    """
-    return config, peer_config
+"""
+    return client_config
 
-def save_configuration(config, filename):
-    try:
-        with open(filename, 'w') as f:
-            f.write(config)
-        subprocess.run(['chmod', '600', filename], check=True)
-    except Exception as e:
-        print(f"Error saving configuration: {e}")
-        sys.exit(1)
+def save_client_config(config):
+    client_config_path = f"{WG_CONFIG_PATH}/client.conf"
+    with open(client_config_path, 'w') as f:
+        f.write(config)
+    return client_config_path
 
-def configure_wireguard():
-    server_config, server_private_key, server_public_key = get_server_configuration()
-    num_peers = int(input("Enter the number of peers: "))
+def generate_qr_code(client_config_path):
+    qr_code_path = client_config_path + ".png"
+    run_command(f"qrencode -t png -o {qr_code_path} < {client_config_path}")
+    print(f"QR code generated and saved as {qr_code_path}.")
 
-    for i in range(1, num_peers + 1):
-        peer_ip = f"10.0.0.{i + 1}"
-        peer_config, peer_config_full = get_peer_configuration(server_public_key, get_server_ip(), peer_ip, i)
-        server_config += peer_config
-        peer_filename = f"/etc/wireguard/peer{i}.conf"
-        save_configuration(peer_config_full, peer_filename)
-        print(f"Configuration for peer {i} saved to {peer_filename}")
-        qr_code = subprocess.run(['qrencode', '-t', 'ansiutf8', peer_config_full], check=True, stdout=subprocess.PIPE).stdout.decode()
-        print(f"QR Code for peer {i}:\n{qr_code}")
+def main_menu():
+    check_sudo()
 
-    save_configuration(server_config, '/etc/wireguard/wg0.conf')
-    print("Server configuration saved to /etc/wireguard/wg0.conf")
-
-def wireguard_menu():
     while True:
-        print("\nWireGuard Management")
-        print("1. Install VPS Service")
-        print("2. Uninstall VPS Service")
-        print("3. Get Server Configuration")
-        print("4. Get Server Configuration (QR Code)")
-        print("0. Exit")
-
+        print("\nVPN Management Menu")
+        print("1. Install WireGuard")
+        print("2. Uninstall WireGuard")
+        print("3. Exit")
         choice = input("Enter your choice: ")
 
         if choice == '1':
@@ -110,21 +135,9 @@ def wireguard_menu():
         elif choice == '2':
             uninstall_wireguard()
         elif choice == '3':
-            with open('/etc/wireguard/wg0.conf', 'r') as f:
-                print(f.read())
-        elif choice == '4':
-            with open('/etc/wireguard/wg0.conf', 'r') as f:
-                server_config = f.read()
-            qr_code = subprocess.run(['qrencode', '-t', 'ansiutf8', server_config], check=True, stdout=subprocess.PIPE).stdout.decode()
-            print("Scan the following QR Code with your WireGuard app:")
-            print(qr_code)
-        elif choice == '0':
-            sys.exit()
+            break
         else:
-            print("Invalid choice. Please try again.")
+            print("Invalid choice, please try again.")
 
 if __name__ == "__main__":
-    if os.geteuid() != 0:
-        print("Please run this script with sudo.")
-        sys.exit(1)
-    wireguard_menu()
+    main_menu()
