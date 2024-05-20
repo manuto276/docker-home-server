@@ -14,7 +14,7 @@ def load_default_config():
             for line in f:
                 if line.strip() and not line.startswith('#'):
                     key, value = line.strip().split('=', 1)
-                    config[key] = value.strip('"')
+                    config[key] = value.strip('\"')
     except FileNotFoundError:
         print("File di configurazione predefinita non trovato.")
         sys.exit(1)
@@ -33,7 +33,7 @@ def load_config():
             for line in f:
                 if line.strip() and not line.startswith('#'):
                     key, value = line.strip().split('=', 1)
-                    config[key] = value.strip('"')
+                    config[key] = value.strip('\"')
     except Exception as e:
         print(f"Errore nel caricamento della configurazione: {e}")
         return None
@@ -215,28 +215,6 @@ def install_server():
     if mysql_root_password:
         config['MYSQL_ROOT_PASSWORD'] = mysql_root_password
 
-    create_mysql_user = input("Do you want to create a MySQL user? [y/n]: ")
-    if create_mysql_user.lower() == 'y':
-        mysql_user = input(f"Enter the MySQL user [{config['MYSQL_USER']}]: ")
-        if mysql_user:
-            config['MYSQL_USER'] = mysql_user
-
-        mysql_password = input(f"Enter the MySQL user password [{config['MYSQL_PASSWORD']}]: ")
-        if mysql_password:
-            config['MYSQL_PASSWORD'] = mysql_password
-
-    create_mysql_database = input("Do you want to create a default MySQL database? [y/n]: ")
-    if create_mysql_database.lower() == 'y':
-        mysql_database = input(f"Enter the MySQL database name [{config['MYSQL_DATABASE']}]: ")
-        if mysql_database:
-            config['MYSQL_DATABASE'] = mysql_database
-
-    create_nextcloud_user = input("Do you want to create a Nextcloud user? [y/n]: ")
-    if create_nextcloud_user.lower() == 'y':
-        nextcloud_password = input(f"Enter the Nextcloud admin password [{config['NEXTCLOUD_PASSWORD']}]: ")
-        if nextcloud_password:
-            config['NEXTCLOUD_PASSWORD'] = nextcloud_password
-
     print("Generating SSL certificates...")
     generate_ssl_certificate(config['BASE_DOMAIN'])
     generate_ssl_certificate(config['GITLAB_DOMAIN'])
@@ -261,14 +239,6 @@ def install_server():
 
     print("Building Docker containers...")
     build_docker_containers(temp_dir)
-
-    if create_mysql_database.lower() == 'y':
-        print("Creating MySQL database...")
-        mysql.create_mysql_database(config)
-
-    if create_mysql_user.lower() == 'y':
-        print("Creating MySQL user...")
-        mysql.create_mysql_user(config)
 
     print("Cleaning up temporary files...")
     shutil.rmtree(temp_dir)

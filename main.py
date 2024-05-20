@@ -1,6 +1,6 @@
 import os
 import sys
-from common import install, uninstall, mysql, nextcloud
+from common import install, uninstall, mysql, nextcloud, wireguard
 
 def main_menu():
     while True:
@@ -10,7 +10,6 @@ def main_menu():
         print("3. Configure MySQL")
         print("4. Configure Nextcloud")
         print("5. WireGuard Configuration")
-        print("6. dnsmasq Configuration")
         print("0. Exit")
         
         choice = input("Enter your choice: ")
@@ -23,6 +22,8 @@ def main_menu():
             mysql.configure_mysql()
         elif choice == '4':
             nextcloud.configure_nextcloud()
+        elif choice == '5':
+            wireguard.wireguard_menu()
         elif choice == '0':
             sys.exit()
         else:
