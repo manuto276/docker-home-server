@@ -2,6 +2,17 @@ import subprocess
 import sys
 
 def get_wireguard_config_from_container(container_name):
+    # Verifica l'installazione di qrencode, in caso contrario installalo
+    try:
+        subprocess.run(['qrencode', '--version'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+    except Exception:
+        print("qrencode is not installed.")
+        try:
+            subprocess.run(['apt', 'install', '-y', 'qrencode'], check=True)
+        except subprocess.CalledProcessError as e:
+            print(f"Error installing qrencode: {e}")
+            sys.exit(1)
+
     # Copia il file di configurazione dal container Docker al sistema host
     config_path = "/config/peer1/peer1.conf"  # Percorso della configurazione WireGuard nel container
     local_config_path = "/tmp/peer1.conf"

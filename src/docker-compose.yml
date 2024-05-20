@@ -15,6 +15,8 @@ services:
       - SERVERPORT=51820
       - PEERS=20
       - PEERDNS=8.8.8.8
+      - ALLOWEDIPS=0.0.0.0/0
+      - INTERNAL_SUBNET=10.0.0.0/24
     volumes:
       - __WIREGUARD_CONFIG_DIR__:/config
       - /lib/modules:/lib/modules

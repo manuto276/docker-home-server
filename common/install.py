@@ -2,8 +2,6 @@ import os
 import shutil
 import subprocess
 import sys
-
-# Carica il modulo MySQL (assicurati di avere questo modulo nella directory corretta)
 from common import mysql
 
 def load_default_config():
@@ -22,70 +20,149 @@ def load_default_config():
         sys.exit(1)
     return config
 
+def load_config():
+    """
+    Carica la configurazione da '/etc/docker-home-server/config.conf'.
+    """
+    if not os.path.exists('/etc/docker-home-server/config.conf'):
+        return None
+
+    config = {}
+    try:
+        with open('/etc/docker-home-server/config.conf') as f:
+            for line in f:
+                if line.strip() and not line.startswith('#'):
+                    key, value = line.strip().split('=', 1)
+                    config[key] = value.strip('"')
+    except Exception as e:
+        print(f"Errore nel caricamento della configurazione: {e}")
+        return None
+
+    return config
+
+def save_config(config):
+    """
+    Salva la configurazione in '/etc/docker-home-server/config.conf'.
+    """
+    try:
+        if not os.path.exists('/etc/docker-home-server'):
+            os.makedirs('/etc/docker-home-server')
+
+        with open('/etc/docker-home-server/config.conf', 'w') as f:
+            for key, value in config.items():
+                f.write(f'{key}={value}\n')
+
+        subprocess.run(['chown', 'root:root', '/etc/docker-home-server/config.conf'], check=True)
+        subprocess.run(['chmod', '600', '/etc/docker-home-server/config.conf'], check=True)
+    except Exception as e:
+        print(f"Errore nel salvataggio della configurazione: {e}")
+        sys.exit(1)
+
 def install_docker():
     """
     Verifica se Docker è installato, altrimenti installa Docker e le sue dipendenze.
     """
     try:
-        # Verifica se Docker è installato
         subprocess.run(["docker", "--version"], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         print("Docker è già installato.")
     except subprocess.CalledProcessError:
         print("Docker non è installato. Procedo con l'installazione.")
         try:
-            # Aggiorna il sistema e installa le dipendenze
             subprocess.run(['apt', 'update'], check=True)
             subprocess.run(['apt', 'install', '-y', 'apt-transport-https', 'ca-certificates', 'curl', 'software-properties-common'], check=True)
-
-            # Aggiungi la chiave GPG ufficiale di Docker
             subprocess.run("curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo apt-key add -", shell=True, check=True)
-
-            # Aggiungi il repository Docker APT
             subprocess.run('sudo add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable"', shell=True, check=True)
-
-            # Aggiorna l'indice dei pacchetti
             subprocess.run(['apt', 'update'], check=True)
-
-            # Installa Docker
             subprocess.run(['apt', 'install', '-y', 'docker-ce', 'docker-compose'], check=True)
-
-            # Aggiungi l'utente corrente al gruppo docker
             subprocess.run(['usermod', '-aG', 'docker', os.getlogin()], check=True)
-
-            # Avvia il servizio Docker
             subprocess.run(['systemctl', 'start', 'docker'], check=True)
-
-            # Abilita il servizio Docker all'avvio
             subprocess.run(['systemctl', 'enable', 'docker'], check=True)
-
             print("Docker è stato installato con successo.")
         except subprocess.CalledProcessError as e:
             print(f"C'è stato un problema nell'installazione di Docker: {e}")
             sys.exit(1)
 
+def is_package_installed(package_name):
+    """
+    Verifica se un pacchetto è installato.
+    """
+    result = subprocess.run(['dpkg', '-s', package_name], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    return result.returncode == 0
+
+def install_package(package_name):
+    """
+    Installa un pacchetto utilizzando apt-get.
+    """
+    try:
+        subprocess.run(['sudo', 'apt-get', 'install', '-y', package_name], check=True)
+        print(f"{package_name} è stato installato con successo.")
+    except subprocess.CalledProcessError as e:
+        print(f"Errore nell'installazione di {package_name}: {e}")
+        raise
+
+def rule_exists(rule):
+    """
+    Verifica se una regola di iptables esiste già.
+    """
+    check_rule = ["sudo", "iptables", "-C"] + rule.split()[1:]
+    try:
+        subprocess.run(check_rule, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        return True
+    except subprocess.CalledProcessError:
+        return False
+
 def configure_firewall():
     """
     Configura il firewall per permettere il traffico necessario e bloccare il resto.
     """
-    rules = [
-        "sudo iptables -A INPUT -p tcp --dport 22 -j ACCEPT",
-        "sudo iptables -A INPUT -p udp --dport 51820 -j ACCEPT",
-        "sudo iptables -A INPUT -s 10.0.0.0/24 -j ACCEPT",
-        "sudo iptables -A INPUT -i docker0 -j ACCEPT",
-        "sudo iptables -A INPUT -i lo -j ACCEPT",
-        "sudo iptables -A INPUT -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT",
+    initial_rules = [
+        "sudo iptables -F",
+        "sudo iptables -X",
+        "sudo iptables -t nat -F",
+        "sudo iptables -t nat -X",
+        "sudo iptables -t mangle -F",
+        "sudo iptables -t mangle -X",
         "sudo iptables -P INPUT DROP",
-        "sudo apt-get install -y iptables-persistent",
-        "sudo sh -c \"iptables-save > /etc/iptables/rules.v4\""
+        "sudo iptables -P FORWARD DROP",
+        "sudo iptables -P OUTPUT ACCEPT"
     ]
 
-    for rule in rules:
+    rules = [
+        "-A INPUT -i lo -j ACCEPT",
+        "-A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT",
+        "-A INPUT -p tcp --dport 22 -j ACCEPT",
+        "-A INPUT -p udp --dport 51820 -j ACCEPT",
+        "-A INPUT -s 10.0.0.0/24 -j ACCEPT",
+        "-A INPUT -i docker0 -j ACCEPT",
+        "-A FORWARD -o docker0 -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT",
+        "-A FORWARD -o docker0 -j ACCEPT",
+        "-A FORWARD -i docker0 ! -o docker0 -j ACCEPT",
+        "-A FORWARD -i docker0 -o docker0 -j ACCEPT"
+    ]
+
+    for rule in initial_rules:
         try:
             subprocess.run(rule, shell=True, check=True)
         except subprocess.CalledProcessError as e:
-            print(f"Errore nell'applicazione della regola firewall: {e}")
+            print(f"Errore nel reset delle regole firewall: {e}")
 
-    print("Il firewall è stato configurato con successo.")
+    for rule in rules:
+        if not rule_exists(rule):
+            try:
+                subprocess.run(["sudo", "iptables"] + rule.split(), check=True)
+                print(f"Regola applicata: {rule}")
+            except subprocess.CalledProcessError as e:
+                print(f"Errore nell'applicazione della regola firewall: {rule} -> {e}")
+
+    if not is_package_installed("iptables-persistent"):
+        print("iptables-persistent non è installato. Procedo con l'installazione.")
+        install_package("iptables-persistent")
+
+    try:
+        subprocess.run(['sudo', 'sh', '-c', 'iptables-save > /etc/iptables/rules.v4'], check=True)
+        print("Le regole di iptables sono state salvate.")
+    except subprocess.CalledProcessError as e:
+        print(f"Errore nel salvataggio delle regole di iptables: {e}")
 
 def create_directories(config):
     """
@@ -114,81 +191,6 @@ def replace_placeholders(config, src, dst):
             os.makedirs(os.path.dirname(dest_path), exist_ok=True)
             with open(dest_path, 'w') as f:
                 f.write(content)
-
-def build_docker_containers(temp_dir):
-    """
-    Costruisce e avvia i container Docker.
-    """
-    try:
-        subprocess.run(['docker-compose', 'up', '-d'], cwd=temp_dir, check=True)
-    except subprocess.CalledProcessError as e:
-        print(f"Errore durante la costruzione dei container Docker: {e}")
-        sys.exit(1)
-
-def stop_docker_containers(temp_dir):
-    """
-    Ferma i container Docker se sono in esecuzione.
-    """
-    try:
-        subprocess.run(['docker-compose', 'down'], cwd=temp_dir, check=True)
-    except subprocess.CalledProcessError as e:
-        print(f"Errore durante l'arresto dei container Docker: {e}")
-
-def cleanup_docker_containers():
-    """
-    Pulisce i container e le immagini Docker inutilizzate.
-    """
-    try:
-        # Prune Docker system
-        subprocess.run(['docker', 'system', 'prune', '-f'], check=True)
-
-        # Prune Docker images
-        subprocess.run(['docker', 'image', 'prune', '-f'], check=True)
-    except subprocess.CalledProcessError as e:
-        print(f"Errore durante la pulizia dei container Docker: {e}")
-
-def save_config(config):
-    """
-    Salva la configurazione in '/etc/docker-home-server/config.conf'.
-    """
-    try:
-        # Check if the directory /etc/docker-home-server exists
-        if not os.path.exists('/etc/docker-home-server'):
-            os.makedirs('/etc/docker-home-server')
-
-        # Write the configuration to /etc/docker-home-server/config
-        with open('/etc/docker-home-server/config.conf', 'w') as f:
-            for key, value in config.items():
-                f.write(f'{key}={value}\n')
-
-        # Change the owner of the configuration file to root
-        subprocess.run(['chown', 'root:root', '/etc/docker-home-server/config.conf'], check=True)
-
-        # Change the permissions of the configuration file to 600
-        subprocess.run(['chmod', '600', '/etc/docker-home-server/config.conf'], check=True)
-    except Exception as e:
-        print(f"Errore nel salvataggio della configurazione: {e}")
-        sys.exit(1)
-
-def load_config():
-    """
-    Carica la configurazione da '/etc/docker-home-server/config.conf'.
-    """
-    if not os.path.exists('/etc/docker-home-server/config.conf'):
-        return None
-
-    config = {}
-    try:
-        with open('/etc/docker-home-server/config.conf') as f:
-            for line in f:
-                if line.strip() and not line.startswith('#'):
-                    key, value = line.strip().split('=', 1)
-                    config[key] = value.strip('"')
-    except Exception as e:
-        print(f"Errore nel caricamento della configurazione: {e}")
-        return None
-
-    return config
 
 def generate_ssl_certificate(domain):
     """
@@ -223,6 +225,35 @@ def copy_nginx_config(temp_dir):
     except Exception as e:
         print(f"Errore nella copia della configurazione di Nginx: {e}")
 
+def stop_docker_containers(temp_dir):
+    """
+    Ferma i container Docker se sono in esecuzione.
+    """
+    try:
+        subprocess.run(['docker-compose', 'down'], cwd=temp_dir, check=True)
+    except subprocess.CalledProcessError as e:
+        print(f"Errore durante l'arresto dei container Docker: {e}")
+
+def cleanup_docker_containers():
+    """
+    Pulisce i container e le immagini Docker inutilizzate.
+    """
+    try:
+        subprocess.run(['docker', 'system', 'prune', '-f'], check=True)
+        subprocess.run(['docker', 'image', 'prune', '-f'], check=True)
+    except subprocess.CalledProcessError as e:
+        print(f"Errore durante la pulizia dei container Docker: {e}")
+
+def build_docker_containers(temp_dir):
+    """
+    Costruisce e avvia i container Docker.
+    """
+    try:
+        subprocess.run(['docker-compose', 'up', '-d'], cwd=temp_dir, check=True)
+    except subprocess.CalledProcessError as e:
+        print(f"Errore durante la costruzione dei container Docker: {e}")
+        sys.exit(1)
+
 def install_server():
     """
     Procedura di installazione del server Docker Home.
@@ -240,7 +271,6 @@ def install_server():
     print("Creating necessary directories...")
     create_directories(config)
 
-    # Asking the user for the configuration values
     ip_address = subprocess.run(['hostname', '-I'], stdout=subprocess.PIPE).stdout.decode().strip().split()[0]
     config['SERVERIP'] = ip_address
 
