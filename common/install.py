@@ -82,35 +82,6 @@ def install_docker():
             print(f"C'è stato un problema nell'installazione di Docker: {e}")
             sys.exit(1)
 
-def is_package_installed(package_name):
-    """
-    Verifica se un pacchetto è installato.
-    """
-    result = subprocess.run(['dpkg', '-s', package_name], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    return result.returncode == 0
-
-def install_package(package_name):
-    """
-    Installa un pacchetto utilizzando apt-get.
-    """
-    try:
-        subprocess.run(['sudo', 'apt-get', 'install', '-y', package_name], check=True)
-        print(f"{package_name} è stato installato con successo.")
-    except subprocess.CalledProcessError as e:
-        print(f"Errore nell'installazione di {package_name}: {e}")
-        raise
-
-def rule_exists(rule):
-    """
-    Verifica se una regola di iptables esiste già.
-    """
-    check_rule = ["sudo", "iptables", "-C"] + rule.split()[1:]
-    try:
-        subprocess.run(check_rule, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        return True
-    except subprocess.CalledProcessError:
-        return False
-
 def create_directories(config):
     """
     Crea le directory necessarie specificate nella configurazione.

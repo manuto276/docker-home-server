@@ -1,57 +1,105 @@
 import subprocess
 import sys
+import os
 
-def get_wireguard_config_from_container(container_name):
-    # Verifica l'installazione di qrencode, in caso contrario installalo
+def install_wireguard():
     try:
-        subprocess.run(['qrencode', '--version'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
-    except Exception:
-        print("qrencode is not installed.")
-        try:
-            subprocess.run(['apt', 'install', '-y', 'qrencode'], check=True)
-        except subprocess.CalledProcessError as e:
-            print(f"Error installing qrencode: {e}")
-            sys.exit(1)
-
-    # Copia il file di configurazione dal container Docker al sistema host
-    config_path = "/config/peer1/peer1.conf"  # Percorso della configurazione WireGuard nel container
-    local_config_path = "/tmp/peer1.conf"
-
-    try:
-        subprocess.run(['docker', 'cp', f'{container_name}:{config_path}', local_config_path], check=True)
+        subprocess.run(['apt', 'update'], check=True)
+        subprocess.run(['apt', 'install', '-y', 'wireguard'], check=True)
+        print("WireGuard installed successfully.")
     except subprocess.CalledProcessError as e:
-        print(f"Error copying file from container: {e}")
+        print(f"Error installing WireGuard: {e}")
         sys.exit(1)
 
-    # Leggi il contenuto del file di configurazione
+def generate_wireguard_keys():
     try:
-        with open(local_config_path, 'r') as file:
-            config = file.read()
-    except FileNotFoundError:
-        print("Configuration file not found.")
+        private_key = subprocess.check_output(['wg', 'genkey']).strip().decode('utf-8')
+        public_key = subprocess.check_output(['wg', 'pubkey'], input=private_key.encode()).strip().decode('utf-8')
+        return private_key, public_key
+    except subprocess.CalledProcessError as e:
+        print(f"Error generating WireGuard keys: {e}")
         sys.exit(1)
 
-    return config
+def configure_wireguard():
+    server_private_key, server_public_key = generate_wireguard_keys()
+    client_private_key, client_public_key = generate_wireguard_keys()
 
-def print_wireguard_qr(config):
-    # Print QR code using qrencode
-    subprocess.run(['qrencode', '-t', 'ANSIUTF8'], input=config.encode(), check=True)
+    config_content = f"""
+[Interface]
+Address = 10.0.0.1/24
+SaveConfig = true
+ListenPort = 51820
+PrivateKey = {server_private_key}
+
+[Peer]
+PublicKey = {client_public_key}
+AllowedIPs = 10.0.0.2/32
+"""
+    try:
+        with open('/etc/wireguard/wg0.conf', 'w') as f:
+            f.write(config_content)
+        subprocess.run(['systemctl', 'start', 'wg-quick@wg0'], check=True)
+        subprocess.run(['systemctl', 'enable', 'wg-quick@wg0'], check=True)
+        print("WireGuard configured and started successfully.")
+        
+        # Configure firewall rules
+        subprocess.run(['iptables', '-A', 'INPUT', '-i', 'wg0', '-p', 'tcp', '--dport', '80', '-j', 'ACCEPT'], check=True)
+        subprocess.run(['iptables', '-A', 'INPUT', '-i', 'wg0', '-p', 'tcp', '--dport', '443', '-j', 'ACCEPT'], check=True)
+        subprocess.run(['iptables', '-A', 'INPUT', '-p', 'tcp', '--dport', '80', '-j', 'DROP'], check=True)
+        subprocess.run(['iptables', '-A', 'INPUT', '-p', 'tcp', '--dport', '443', '-j', 'DROP'], check=True)
+        subprocess.run(['sh', '-c', "iptables-save > /etc/iptables/rules.v4"], check=True)
+        print("Firewall rules configured successfully.")
+    except Exception as e:
+        print(f"Error configuring WireGuard: {e}")
+        sys.exit(1)
+
+def get_client_config():
+    try:
+        with open('/etc/wireguard/wg0.conf', 'r') as f:
+            config = f.read()
+        print("WireGuard client configuration:\n")
+        print(config)
+    except FileNotFoundError:
+        print("WireGuard configuration file not found.")
+        sys.exit(1)
+
+def uninstall_wireguard():
+    try:
+        subprocess.run(['systemctl', 'stop', 'wg-quick@wg0'], check=True)
+        subprocess.run(['systemctl', 'disable', 'wg-quick@wg0'], check=True)
+        subprocess.run(['apt', 'remove', '-y', 'wireguard'], check=True)
+        subprocess.run(['apt', 'autoremove', '-y'], check=True)
+        print("WireGuard uninstalled successfully.")
+        
+        # Restore firewall rules
+        subprocess.run(['iptables', '-D', 'INPUT', '-i', 'wg0', '-p', 'tcp', '--dport', '80', '-j', 'ACCEPT'], check=True)
+        subprocess.run(['iptables', '-D', 'INPUT', '-i', 'wg0', '-p', 'tcp', '--dport', '443', '-j', 'ACCEPT'], check=True)
+        subprocess.run(['iptables', '-D', 'INPUT', '-p', 'tcp', '--dport', '80', '-j', 'DROP'], check=True)
+        subprocess.run(['iptables', '-D', 'INPUT', '-p', 'tcp', '--dport', '443', '-j', 'DROP'], check=True)
+        subprocess.run(['sh', '-c', "iptables-save > /etc/iptables/rules.v4"], check=True)
+        print("Firewall rules restored successfully.")
+    except Exception as e:
+        print(f"Error uninstalling WireGuard: {e}")
+        sys.exit(1)
 
 def wireguard_menu():
     while True:
         print("WireGuard Configuration")
-        print("1. Generate WireGuard QR")
-        print("2. Back to main menu")
+        print("1. Configure WireGuard")
+        print("2. Get Client Configuration")
+        print("3. Uninstall WireGuard")
+        print("4. Back to main menu")
 
         choice = input("Enter your choice: ")
 
         if choice == '1':
-            container_name = "wireguard"  # Nome del container Docker WireGuard
-            config = get_wireguard_config_from_container(container_name)
-            print("WireGuard configuration:")
-            print("Generating QR code...")
-            print_wireguard_qr(config)
+            install_wireguard()
+            configure_wireguard()
         elif choice == '2':
+            get_client_config()
+        elif choice == '3':
+            uninstall_wireguard()
+        elif choice == '4':
             break
         else:
             print("Invalid choice. Please try again.")
