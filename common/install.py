@@ -111,66 +111,13 @@ def rule_exists(rule):
     except subprocess.CalledProcessError:
         return False
 
-def configure_firewall():
-    """
-    Configura il firewall per permettere il traffico necessario e bloccare il resto.
-    """
-    initial_rules = [
-        "sudo iptables -F",
-        "sudo iptables -X",
-        "sudo iptables -t nat -F",
-        "sudo iptables -t nat -X",
-        "sudo iptables -t mangle -F",
-        "sudo iptables -t mangle -X",
-        "sudo iptables -P INPUT DROP",
-        "sudo iptables -P FORWARD DROP",
-        "sudo iptables -P OUTPUT ACCEPT"
-    ]
-
-    rules = [
-        "-A INPUT -i lo -j ACCEPT",
-        "-A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT",
-        "-A INPUT -p tcp --dport 22 -j ACCEPT",
-        "-A INPUT -p udp --dport 51820 -j ACCEPT",
-        "-A INPUT -s 10.0.0.0/24 -j ACCEPT",
-        "-A INPUT -i docker0 -j ACCEPT",
-        "-A FORWARD -o docker0 -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT",
-        "-A FORWARD -o docker0 -j ACCEPT",
-        "-A FORWARD -i docker0 ! -o docker0 -j ACCEPT",
-        "-A FORWARD -i docker0 -o docker0 -j ACCEPT"
-    ]
-
-    for rule in initial_rules:
-        try:
-            subprocess.run(rule, shell=True, check=True)
-        except subprocess.CalledProcessError as e:
-            print(f"Errore nel reset delle regole firewall: {e}")
-
-    for rule in rules:
-        if not rule_exists(rule):
-            try:
-                subprocess.run(["sudo", "iptables"] + rule.split(), check=True)
-                print(f"Regola applicata: {rule}")
-            except subprocess.CalledProcessError as e:
-                print(f"Errore nell'applicazione della regola firewall: {rule} -> {e}")
-
-    if not is_package_installed("iptables-persistent"):
-        print("iptables-persistent non è installato. Procedo con l'installazione.")
-        install_package("iptables-persistent")
-
-    try:
-        subprocess.run(['sudo', 'sh', '-c', 'iptables-save > /etc/iptables/rules.v4'], check=True)
-        print("Le regole di iptables sono state salvate.")
-    except subprocess.CalledProcessError as e:
-        print(f"Errore nel salvataggio delle regole di iptables: {e}")
-
 def create_directories(config):
     """
     Crea le directory necessarie specificate nella configurazione.
     """
     directories = [
         config['NGINX_CONF_DIR'], config['NGINX_CERTS_DIR'], config['NGINX_VHOST_DIR'],
-        config['WIREGUARD_CONFIG_DIR'], config['GITLAB_CONFIG_DIR'], config['GITLAB_LOGS_DIR'],
+        config['GITLAB_CONFIG_DIR'], config['GITLAB_LOGS_DIR'],
         config['GITLAB_DATA_DIR'], config['MYSQL_DATA_DIR'], config['NEXTCLOUD_DATA_DIR']
     ]
     for directory in directories:
@@ -357,9 +304,6 @@ def install_server():
 
     print("Saving configuration...")
     save_config(config)
-
-    print("Configuring firewall...")
-    configure_firewall()
 
     print("Docker Home Server installation completed.")
 
