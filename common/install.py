@@ -2,7 +2,7 @@ import os
 import shutil
 import subprocess
 import sys
-from common import mysql
+import time
 
 def load_default_config():
     """
@@ -65,7 +65,7 @@ def install_docker():
     try:
         subprocess.run(["docker", "--version"], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         print("Docker è già installato.")
-    except subprocess.CalledProcessError:
+    except Exception:
         print("Docker non è installato. Procedo con l'installazione.")
         try:
             subprocess.run(['apt', 'update'], check=True)
@@ -78,7 +78,7 @@ def install_docker():
             subprocess.run(['systemctl', 'start', 'docker'], check=True)
             subprocess.run(['systemctl', 'enable', 'docker'], check=True)
             print("Docker è stato installato con successo.")
-        except subprocess.CalledProcessError as e:
+        except Exception as e:
             print(f"C'è stato un problema nell'installazione di Docker: {e}")
             sys.exit(1)
 
@@ -110,28 +110,17 @@ def replace_placeholders(config, src, dst):
             with open(dest_path, 'w') as f:
                 f.write(content)
 
-def generate_ssl_certificate(domain):
+def obtain_ssl_certificate(domain, email, compose_dir):
     """
-    Genera un certificato SSL per il dominio specificato.
+    Ottiene un certificato SSL per il dominio specificato utilizzando Certbot.
     """
-    ssl_dir = '/etc/ssl/certs'
     try:
-        if not os.path.exists(ssl_dir):
-            os.makedirs(ssl_dir)
-
-        if os.path.exists(f'{ssl_dir}/{domain}.crt') and os.path.exists(f'{ssl_dir}/{domain}.key'):
-            recreate_certificate = input("The SSL certificate already exists. Do you want to recreate it? [y/n]: ")
-            if recreate_certificate.lower() != 'y':
-                return
-
         subprocess.run([
-            'openssl', 'req', '-x509', '-nodes', '-days', '365', '-newkey', 'rsa:2048',
-            '-keyout', f'{ssl_dir}/{domain}.key',
-            '-out', f'{ssl_dir}/{domain}.crt',
-            '-subj', f'/CN={domain}'
-        ], check=True)
+            'docker-compose', 'run', '--rm', 'certbot', 'certonly', '--webroot',
+            '--webroot-path=/var/lib/letsencrypt', '-d', domain, '--email', email, '--agree-tos', '--non-interactive'
+        ], check=True, cwd=compose_dir)
     except subprocess.CalledProcessError as e:
-        print(f"Errore nella generazione del certificato SSL per {domain}: {e}")
+        print(f"Errore nell'ottenimento del certificato SSL per {domain}: {e}")
 
 def copy_nginx_config(temp_dir):
     """
@@ -170,6 +159,30 @@ def build_docker_containers(temp_dir):
         subprocess.run(['docker-compose', 'up', '-d'], cwd=temp_dir, check=True)
     except subprocess.CalledProcessError as e:
         print(f"Errore durante la costruzione dei container Docker: {e}")
+        sys.exit(1)
+
+def initialize_nextcloud_database(config):
+    # Aspetta che MySQL sia pronto
+    time.sleep(10)
+    
+    # Comandi per creare database e utente Nextcloud su MySQL
+    try:
+        subprocess.run([
+            'docker', 'exec', 'mysql', 'mysql', '-uroot', f'-p{config["MYSQL_ROOT_PASSWORD"]}',
+            '-e', f'CREATE DATABASE IF NOT EXISTS {config["NEXTCLOUD_MYSQL_DATABASE"]};'
+        ], check=True)
+        
+        subprocess.run([
+            'docker', 'exec', 'mysql', 'mysql', '-uroot', f'-p{config["MYSQL_ROOT_PASSWORD"]}',
+            '-e', f"CREATE USER IF NOT EXISTS '{config['NEXTCLOUD_MYSQL_USER']}'@'%' IDENTIFIED BY '{config['MYSQL_ROOT_PASSWORD']}';"
+        ], check=True)
+        
+        subprocess.run([
+            'docker', 'exec', 'mysql', 'mysql', '-uroot', f'-p{config["MYSQL_ROOT_PASSWORD"]}',
+            '-e', f"GRANT ALL PRIVILEGES ON {config['NEXTCLOUD_MYSQL_DATABASE']}.* TO '{config['NEXTCLOUD_MYSQL_USER']}'@'%';"
+        ], check=True)
+    except subprocess.CalledProcessError as e:
+        print(f"Errore durante l'inizializzazione del database Nextcloud: {e}")
         sys.exit(1)
 
 def install_server():
@@ -215,21 +228,12 @@ def install_server():
     if mysql_root_password:
         config['MYSQL_ROOT_PASSWORD'] = mysql_root_password
 
-    print("Generating SSL certificates...")
-    generate_ssl_certificate(config['BASE_DOMAIN'])
-    generate_ssl_certificate(config['GITLAB_DOMAIN'])
-    generate_ssl_certificate(config['NEXTCLOUD_DOMAIN'])
-    generate_ssl_certificate(config['PHPMYADMIN_DOMAIN'])
-
     temp_dir = '/tmp/docker-home-server'
     print(f"Copying src/ to {temp_dir}...")
     shutil.copytree('src', temp_dir, dirs_exist_ok=True)
 
     print("Replacing placeholders with configuration values...")
     replace_placeholders(config, temp_dir, temp_dir)
-
-    print("Copying Nginx configuration...")
-    copy_nginx_config(temp_dir)
 
     print("Stopping Docker containers (if any)...")
     stop_docker_containers(temp_dir)
@@ -240,11 +244,20 @@ def install_server():
     print("Building Docker containers...")
     build_docker_containers(temp_dir)
 
+    print("Generating SSL certificates with Certbot...")
+    obtain_ssl_certificate(config['BASE_DOMAIN'], config['EMAIL'], temp_dir)
+    obtain_ssl_certificate(config['GITLAB_DOMAIN'], config['EMAIL'], temp_dir)
+    obtain_ssl_certificate(config['NEXTCLOUD_DOMAIN'], config['EMAIL'], temp_dir)
+    obtain_ssl_certificate(config['PHPMYADMIN_DOMAIN'], config['EMAIL'], temp_dir)
+
     print("Cleaning up temporary files...")
     shutil.rmtree(temp_dir)
 
     print("Saving configuration...")
     save_config(config)
+
+    print("Initializing Nextcloud database...")
+    initialize_nextcloud_database(config)
 
     print("Docker Home Server installation completed.")
 

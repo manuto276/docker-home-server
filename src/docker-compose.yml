@@ -17,7 +17,7 @@ services:
     container_name: mysql
     environment:
       MYSQL_ROOT_PASSWORD: __MYSQL_ROOT_PASSWORD__
-      MYSQL_DATABASE: __MYSQL_DATABASE__
+      MYSQL_DATABASE: __MYSQL_ROOT_DATABASE__
     volumes:
       - __MYSQL_DATA_DIR__:/var/lib/mysql
     networks:
@@ -61,11 +61,23 @@ services:
       - __NGINX_CONF_DIR__:/etc/nginx/conf.d
       - __NGINX_CERTS_DIR__:/etc/ssl/certs
       - __NGINX_VHOST_DIR__:/etc/nginx/vhost.d
+      - __NGINX_HTML_DIR__:/usr/share/nginx/html
     depends_on:
       - gitlab
       - mysql
       - phpmyadmin
       - nextcloud
+      - certbot
+    networks:
+      - internal
+
+  certbot:
+    image: certbot/certbot
+    container_name: certbot
+    volumes:
+      - __NGINX_CERTS_DIR__:/etc/letsencrypt
+      - __NGINX_VHOST_DIR__:/var/lib/letsencrypt
+      - __NGINX_HTML_DIR__:/usr/share/nginx/html
     networks:
       - internal
 
